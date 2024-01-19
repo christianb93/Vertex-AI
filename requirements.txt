@@ -1,0 +1,8 @@
+protobuf==3.20.3
+google-cloud-aiplatform==1.39.0
+kfp==2.4.0
+google-cloud-pipeline-components==2.8.0
+torch==2.1.2
+torchserve==0.9.0
+torch-model-archiver==0.9.0
+flask==3.0.0

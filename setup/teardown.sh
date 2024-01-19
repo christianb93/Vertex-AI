@@ -8,10 +8,19 @@ gcloud storage buckets delete \
 
 
 #
+# Delete repository
+#
+gcloud artifacts repositories delete \
+    vertex-ai-docker-repo \
+    --location=$GOOGLE_REGION
+
+
+#
 # Delete associated roles
 #
 project_roles=(
     aiplatform.user
+    artifactregistry.reader
 )
 bucket_roles=(
     storage.objectAdmin

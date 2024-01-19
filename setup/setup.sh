@@ -8,6 +8,16 @@ gcloud storage buckets create \
     --location=$GOOGLE_REGION 
 
 #
+# Create repository 
+#
+gcloud artifacts repositories create \
+    vertex-ai-docker-repo  \
+    --repository-format=docker \
+    --location=$GOOGLE_REGION \
+    --description="Vertex AI custom images"
+
+
+#
 # Create service accounts
 #
 gcloud iam service-accounts create \
@@ -29,7 +39,9 @@ accounts=(
 )
 project_roles=(
     aiplatform.user
+    artifactregistry.reader
 )
+
 bucket_roles=(
     storage.objectAdmin
     storage.legacyBucketOwner

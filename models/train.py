@@ -92,4 +92,4 @@ print(f"Accuracy on test data: {1.0 * hits / N}")
 #
 # Export model
 #
-torch.save(model.state_dict(), "model.pt")
+torch.save(model.state_dict(), "model.bin")

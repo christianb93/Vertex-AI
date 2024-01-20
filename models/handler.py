@@ -12,13 +12,6 @@ class Handler(BaseHandler):
     #
     # This will be called by the base handler. We assume that there is
     # only one input and will ignore all others. 
-    #
-    # We expect our input to respect conditions that Google defines for a custom
-    # container here: https://cloud.google.com/vertex-ai/docs/predictions/custom-container-requirements
-    # so our body is expected to be JSON in the format
-    # {
-    #   "instances" : [<<our actual data>>]
-    # }
     #    
     def preprocess(self, data):
         print(f"Preprocess: {data}")

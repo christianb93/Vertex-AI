@@ -3,11 +3,11 @@
 # server.
 echo "Using model location $AIP_STORAGE_URI"
 python3 download_model.py
-cp model.mar model-store/model.mar
 torchserve \
     --start \
-    --ts-config=/home/model-server/config.properties \
+    --ts-config=torchserve.config \
     --foreground \
+    --model_store=$(pwd) \
     --models \
     model=model.mar
 

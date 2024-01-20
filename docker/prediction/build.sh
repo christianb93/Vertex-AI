@@ -6,6 +6,7 @@
 cp ../../models/torchserve.config .
 cp ../../models/download_model.py .
 cp ../../models/entrypoint.sh .
+chmod 700 entrypoint.sh
 cat  > Dockerfile <<EOF
 FROM $GOOGLE_REGION-docker.pkg.dev/$GOOGLE_PROJECT_ID/vertex-ai-docker-repo/base:latest
 
@@ -17,8 +18,7 @@ COPY torchserve.config .
 COPY download_model.py .
 COPY entrypoint.sh .
 
-ENTRYPOINT ["/bin/bash", "-c"]
-CMD [/bin/bash", "entrypoint.sh"]
+ENTRYPOINT ["/bin/bash", "entrypoint.sh"]
 
 EOF
 #

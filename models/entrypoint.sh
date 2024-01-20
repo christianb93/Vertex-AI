@@ -7,7 +7,7 @@ torchserve \
     --start \
     --ts-config=torchserve.config \
     --foreground \
-    --model_store=$(pwd) \
+    --model-store=$(pwd) \
     --models \
     model=model.mar
 

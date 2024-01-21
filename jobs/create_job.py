@@ -77,6 +77,7 @@ elif args.local_run:
         env = {
             "AIP_MODEL_DIR" : f"gs://{staging_bucket}/job_output/{timestamp}/model",
             "GOOGLE_APPLICATION_CREDENTIALS" : "/keys/key.json",
+            "PYTHONUNBUFFERED" : "1"
         }
         try: 
             os.stat("./key.json")

@@ -103,9 +103,15 @@ elif args.local_run:
         #
         cmd = cmd.replace(local_package_path, "/scriptdir/package.tgz")
         #
-        # Split command into entrypoint and actual command
+        # Split command into entrypoint and actual command. Note that
+        # according to this page 
+        # https://cloud.google.com/vertex-ai/docs/training/configure-container-settings#create_custom_job_custom_container-python_vertex_ai_sdk
+        # what is called command in the job specs is really the entrypoint. However, the docker CLI does not allow us to combine
+        # executable and args into the entrypoint argument, so we need to split this into
+        # the actual entrypoint ("sh"), the first argument ("-c") and the remaining arguments which we escape
         #
         entrypoint = cmd.split(" ")[0]
+        flag = cmd.split(" ")[1]
         command = " ".join(cmd.split(" ")[2:])
         #
         # Run container, mapping temporary directory
@@ -120,6 +126,6 @@ elif args.local_run:
             "-v ./:/keys",
             "-e GOOGLE_APPLICATION_CREDENTIALS=/keys/key.json"
         ]
-        docker_cmd = f"docker run  {' '.join(docker_args)}  {image} -c '{command}'" 
+        docker_cmd = f"docker run  {' '.join(docker_args)}  {image} {flag} '{command}'" 
         print(f"Using docker command: \n{docker_cmd}")
         print(os.system(docker_cmd))

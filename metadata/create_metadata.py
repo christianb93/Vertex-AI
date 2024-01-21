@@ -25,22 +25,46 @@ artifact = aip.Artifact.create(
 print(artifact)
 
 #
+# Create a context 
+#
+context = aip.Context.create(
+    schema_title = context_schema.ExperimentRun.schema_title,
+    display_name = "my-experiment-run",
+    project = google_project_id,
+    location = google_region
+)
+print(context)
+
+
+
+#
 # Create an execution 
 #
 with aip.start_execution(display_name = "my-execution", 
                        schema_title = execution_schema.ContainerExecution.schema_title) as execution:
     print(execution)
+    #
+    # Assign artifact to execution
+    #
     execution.assign_output_artifacts([artifact])    
+    #
+    # Assign execution to context
+    #
+    context.add_artifacts_and_executions(
+        execution_resource_names = [execution.resource_name]
+    )
+    print(context)
 
 #
-# Create a context for an experiment
+# Finally create a parent context
 #
-experiment = aip.Context.create(
+parent_context = aip.Context.create(
     schema_title = context_schema.Experiment.schema_title,
     display_name = "my-experiment",
     project = google_project_id,
     location = google_region
 )
-print(experiment)
-print(type(experiment))
+print(parent_context)
+parent_context.add_context_children([context])
 
+    

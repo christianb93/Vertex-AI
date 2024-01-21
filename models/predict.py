@@ -47,4 +47,4 @@ raw_prediction = endpoint.raw_predict(
 print(f"Status:     {raw_prediction.status_code}")
 print(f"Prediction: {raw_prediction.json()}")
 print(f"Model:      {raw_prediction.headers['X-Vertex-AI-Model']}")
-print(f"Model:      {raw_prediction.headers['X-Vertex-AI-Model-Version-Id']}")
+print(f"Version:    {raw_prediction.headers['X-Vertex-AI-Model-Version-Id']}")

@@ -42,6 +42,7 @@ timestamp = time.strftime("%Y%m%d%H%M%S",time.localtime())
 #
 # Create the job
 #
+print("Creating job:\n-------------------------\n")
 job = aip.CustomJob.from_local_script(
         display_name = "my-job",
         script_path = "train.py",
@@ -52,7 +53,7 @@ job = aip.CustomJob.from_local_script(
         location = google_region,
         staging_bucket = staging_bucket
 )
-print("Machine specification:\n-------------------------\n")
+print("\nMachine specification:\n-------------------------\n")
 print(job.job_spec.worker_pool_specs[0].machine_spec)
 print("Container specification:\n-------------------------\n")
 print(job.job_spec.worker_pool_specs[0].container_spec)

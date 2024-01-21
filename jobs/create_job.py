@@ -2,7 +2,8 @@ import os
 import time
 import google.cloud.aiplatform as aip
 from google.cloud import storage
-
+import docker
+import pathlib
 
 import argparse 
 import tempfile 
@@ -75,7 +76,8 @@ elif args.local_run:
         print(f"Using temporary directory {tmpdir}")
         print(f"Using base image {image}")
         env = {
-            "AIP_MODEL_DIR" : f"gs://{staging_bucket}/job_output/{timestamp}/model"
+            "AIP_MODEL_DIR" : f"gs://{staging_bucket}/job_output/{timestamp}/model",
+            "GOOGLE_APPLICATION_CREDENTIALS" : "/keys/key.json",
         }
         try: 
             os.stat("./key.json")
@@ -102,6 +104,7 @@ elif args.local_run:
         # Replace GCS path in command by local path
         #
         cmd = cmd.replace(local_package_path, "/scriptdir/package.tgz")
+        print(f"Running command {cmd}")
         #
         # Split command into entrypoint and actual command. Note that
         # according to this page 
@@ -110,22 +113,27 @@ elif args.local_run:
         # executable and args into the entrypoint argument, so we need to split this into
         # the actual entrypoint ("sh"), the first argument ("-c") and the remaining arguments which we escape
         #
-        entrypoint = cmd.split(" ")[0]
-        flag = cmd.split(" ")[1]
+        entrypoint = cmd.split(" ")[0:2]
         command = " ".join(cmd.split(" ")[2:])
+        #        
         #
         # Run container, mapping temporary directory
         #
-        docker_args = [
-            f"--name=job-test",
-            f"-it",
-            f"--rm",
-            f"--entrypoint {entrypoint}",
-            f"-v {tmpdir}:/scriptdir",
-            " ".join([f"-e {e}={env[e]}" for e in env.keys()]),
-            "-v ./:/keys",
-            "-e GOOGLE_APPLICATION_CREDENTIALS=/keys/key.json"
-        ]
-        docker_cmd = f"docker run  {' '.join(docker_args)}  {image} {flag} '{command}'" 
-        print(f"Using docker command: \n{docker_cmd}")
-        print(os.system(docker_cmd))
+        docker_client = docker.from_env()
+        container = docker_client.containers.run(
+            image = image,
+            entrypoint = entrypoint,
+            command = f"'{command}'",
+            volumes = [
+                f"{tmpdir}:/scriptdir",
+                f"{pathlib.Path().resolve()}:/keys"
+            ],
+            environment = env,
+            stderr = True,
+            stdout = True,
+            detach = True,
+        )
+        for l in container.logs(stream = True):
+            print(l.decode('utf-8'), end = "")
+        container.remove()
+        

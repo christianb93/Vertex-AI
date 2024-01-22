@@ -56,13 +56,15 @@ with aip.start_execution(display_name = "my-execution",
     print(context)
 
 #
-# Finally create a parent context
+# Finally create a parent context. To be displayed in the Experiment tab of the
+# console, the metadata needs to contain the "experiment_deleted" property
 #
 parent_context = aip.Context.create(
     schema_title = context_schema.Experiment.schema_title,
     display_name = "my-experiment",
     project = google_project_id,
-    location = google_region
+    location = google_region,
+    metadata = {"experiment_deleted": False}
 )
 print(parent_context)
 parent_context.add_context_children([context])

@@ -31,7 +31,11 @@ context = aip.Context.create(
     schema_title = context_schema.ExperimentRun.schema_title,
     display_name = "my-experiment-run",
     project = google_project_id,
-    location = google_region
+    location = google_region,
+    #
+    # Add metadata to make the console happy
+    #
+    metadata = { '_state': 'COMPLETE'}
 )
 print(context)
 

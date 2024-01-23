@@ -30,6 +30,8 @@ def handle_item(item, category, delete =  False, verbose = False):
                 print(f"   Execution {execution.display_name}")
             for parent in item.parent_contexts:
                 print(f"   Parent {parent}")
+            for artifact in item.get_artifacts():
+                print(f"   Artifact {artifact.display_name} / {artifact.name}")
         if isinstance(item, aip.Execution):
             for artifact in item.get_output_artifacts():
                 print(f"   Artifact {artifact.display_name} is output of this execution")

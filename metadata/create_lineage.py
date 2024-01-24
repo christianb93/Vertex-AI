@@ -31,5 +31,31 @@ with aip.start_run(run = "my-experiment-run") as experiment_run:
             location = google_region
         )
         execution.assign_output_artifacts([model])
+        #
+        # Log something
+        #
+        aip.log_params({
+            "lr" : 0.01,
+            "epochs" : 1000
+        })
+        aip.log_metrics({
+            'accuracy': 0.95, 
+            'validation_loss': 0.14
+        })
+        for i in range(20):
+            aip.log_time_series_metrics({
+                "loss" : 100 - i*i*0.001
+            }, step = i)
 
 
+#
+# Get logged data from experiment run
+#
+experiment_run = aip.ExperimentRun(
+    run_name = "my-experiment-run",
+    experiment = "my-experiment")
+parameters = experiment_run.get_params()
+metrics = experiment_run.get_metrics()
+
+print(f"Logged parameters: {parameters}")
+print(f"Logged metrics:    {metrics}")

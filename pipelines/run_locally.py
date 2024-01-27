@@ -9,6 +9,7 @@ import pipeline_definition
 import shutil
 import argparse
 import os
+import pathlib
 import json
 
 #
@@ -33,7 +34,7 @@ types.artifact_types._GCS_LOCAL_MOUNT_PREFIX = LOCAL_DIR
 # for a step, we loo up parameters by name here
 #
 common_parameter_values = {
-            "epochs" : 5000,
+            "epochs" : 1000,
             "google_project_id" : os.environ.get("GOOGLE_PROJECT_ID"),
             "google_region" : os.environ.get("GOOGLE_REGION"),
             "items" : 1000,
@@ -52,10 +53,24 @@ def get_args():
 # Define the local path for an input or output artifact of a given step
 # 
 def get_local_artifact_path(artifact_name, step_name):
-    return f"{LOCAL_DIR}{PIPELINE_ROOT}/{step_name}/{artifact_name}"
+    output_dir = f"{LOCAL_DIR}{PIPELINE_ROOT}/{step_name}"
+    if artifact_name is None:
+        return output_dir
+    return f"{output_dir}/{artifact_name}"
 
 
-def create_runtime_artifact(artifact_name, step_name, schema_title):
+def create_runtime_artifact(artifact_name, step_name, schema_title, input_mappings = None):
+        #
+        # See whether the artifact name shows up in input_mapping and if yes,
+        # use that step and artifact name for the URI so that we use the output
+        # of that step as input artifact
+        #
+        uri_step_name = step_name
+        uri_artifact_name = artifact_name    
+        if input_mappings is not None:
+            if artifact_name in input_mappings:
+                uri_step_name = input_mappings[artifact_name]['from_step']
+                uri_artifact_name = input_mappings[artifact_name]['from_artifact']
         #
         # This dictionary represents a runtime artifact,
         # i.e. an instance of one of the classes in dsl.types.artifact_types
@@ -72,7 +87,7 @@ def create_runtime_artifact(artifact_name, step_name, schema_title):
             # the gs:// prefix will be replaced by /gcs or more precisely by the value of
             # types.artifact_types._GCS_LOCAL_MOUNT_PREFIX
             #
-            "uri" : f"gs://{PIPELINE_ROOT}/{step_name}/{artifact_name}"
+            "uri" : f"gs://{PIPELINE_ROOT}/{uri_step_name}/{uri_artifact_name}"
         }
 
 
@@ -80,11 +95,11 @@ def get_schema_title_for_type(cls):
     return cls.schema_title     
 
 
-def build_executor_input_from_function(func, step_name):
+def build_executor_input_from_function(comp, step_name, input_mappings = None):
     #
-    # Strip of Python function
+    # Strip off Python function and get its signature
     #
-    python_func = func.python_func 
+    python_func = comp.python_func 
     signature = inspect.signature(python_func)
     output_artifacts = {}
     input_artifacts = {}
@@ -139,7 +154,8 @@ def build_executor_input_from_function(func, step_name):
                         create_runtime_artifact(
                             artifact_name = param_name, 
                             step_name = step_name,
-                            schema_title = schema_title)
+                            schema_title = schema_title,
+                            input_mappings = input_mappings)
                     ]
                 }
         
@@ -166,19 +182,25 @@ def build_executor_input_from_function(func, step_name):
     return executor_input
 
 
-def run_step(func, step_name, verbose = False):
+def run_step(comp, step_name, verbose = False, input_mappings = None):
     #
     # Assemble executor input
     #
-    executor_input = build_executor_input_from_function(func, step_name)
+    executor_input = build_executor_input_from_function(comp, step_name, input_mappings = input_mappings)
     if verbose: 
         print(f"Preparing step {step_name} - using executor input: \n{json.dumps(executor_input, indent = 4)}")
+    #
+    # Make sure that output directory exists
+    # 
+    if "artifacts" in executor_input['outputs']:
+        output_dir = get_local_artifact_path(step_name = step_name, artifact_name = None)
+        os.makedirs(output_dir, exist_ok = True)
     #
     # Create executor 
     #    
     _executor = executor.Executor(
             executor_input = executor_input, 
-            function_to_execute = func)
+            function_to_execute = comp)
 
     #
     # Actually run it. The executor will use the executor input to 
@@ -194,13 +216,33 @@ def run_step(func, step_name, verbose = False):
 #
 args = get_args()
 #
-# Run steps of pipeline. After each step, copy output
-# to the location where the next step expects it
+# Run steps of pipeline
 #
-run_step(pipeline_definition.create_data, "create_data", verbose = args.verbose)
-shutil.copy(get_local_artifact_path("data", "create_data"),
-            get_local_artifact_path("data", "train"))
-run_step(pipeline_definition.train, "train", verbose = args.verbose)
-shutil.copy(get_local_artifact_path("trained_model", "train"),
-            get_local_artifact_path("trained_model", "evaluate"))
-run_step(pipeline_definition.evaluate, "evaluate", verbose = args.verbose)
+run_step(comp = pipeline_definition.create_data, 
+         step_name = "create_data", 
+         verbose = args.verbose)
+#
+# Run step "train", using the artifact "data"
+# from step "create_data" as input for the parameter "data"
+#
+run_step(comp = pipeline_definition.train, 
+         step_name = "train",
+         input_mappings = {
+             "data" : {
+                 "from_step" : "create_data",
+                 "from_artifact" : "data"
+             }
+         }, 
+         verbose = args.verbose)
+#
+# Similarly run step evaluate
+#
+run_step(comp = pipeline_definition.evaluate, 
+         step_name = "evaluate",
+         input_mappings = {
+             "trained_model" : {
+                 "from_step" : "train",
+                 "from_artifact" : "trained_model"
+             }
+         }, 
+         verbose = args.verbose)

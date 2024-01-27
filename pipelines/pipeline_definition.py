@@ -92,7 +92,7 @@ def train(google_project_id : str, google_region: str,
 @dsl.component(
     base_image = f"{google_region}-docker.pkg.dev/{google_project_id}/vertex-ai-docker-repo/pipeline:latest",
 )
-def evaluate(trained_model : Input[Model], trials : int):
+def evaluate(trained_model : Input[Model], trials : int, metrics: Output[Metrics]):
     import model 
     import torch
     import pickle
@@ -116,6 +116,7 @@ def evaluate(trained_model : Input[Model], trials : int):
             hits = hits + 1
         accuracy = 100.0 * hits / trials
     print(f"Accuracy: {accuracy}")
+    metrics.log_metric("accuracy", accuracy)
 
 
 @dsl.pipeline(

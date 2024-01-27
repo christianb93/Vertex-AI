@@ -16,9 +16,10 @@ pipeline_job = aip.PipelineJob(
     template_path = "my-pipeline.yaml",
     pipeline_root = f"gs://vertex-ai-{google_project_id}/pipeline_root",
     parameter_values = {
-        "epochs" : 100,
-        "lr" : 0.01,
+        "epochs" : 5000,
+        "lr" : 0.05,
         "items" : 1000,
+        "trials" : 100
     },
     project = google_project_id,
     location = google_region

@@ -12,8 +12,20 @@ import os
 import pathlib
 import json
 
+
+#
+# A simple test driver to run an invidual pipeline component. This class works by building an executor input
+# structure that points to local data for a given component function and then uses the KFP executor to actually
+# run it. Currently, this only supports a subset of possible signatures - specifically we support only simple 
+# annotations like Output[Model] or int, but no lists as outputs and no function outputs (i.e. output parameters)
+#
 class ComponentRunner:
 
+    #
+    # local_dir = the local directory under which inputs and outputs are placed
+    # pipeline_root = the name of the subdirectory under this local dir where artifacts
+    # are created
+    #
     def __init__(self, pipeline_root = "pipeline_root", local_dir = "./gcs"):
         self.local_dir = local_dir
         self.pipeline_root = pipeline_root
@@ -33,6 +45,21 @@ class ComponentRunner:
             return output_dir
         return f"{output_dir}/{artifact_name}"
 
+    #
+    # Create the part of an execution input JSON which specifies an individual artifact. Uusally
+    # the URI used for this is 
+    # gs://{pipeline_root}/{step_name}/{artifact_name}
+    # The input_mappings parameter can be used to let the URI point to an output from a 
+    # different step, and is a mapping whose keys are the names of the artifacts. If, for instance, 
+    # there is an entry
+    # "artifact_name" : {
+    #                      "from_step" : "train",
+    #                      "from_artifact" : "model"
+    #                   }
+    # then the URI used for the artifact (usually an input artifact) "artifact_name" will be
+    # gs://{pipeline_root}/train/model
+    # so that we read from the output artifact model of the step train 
+    # 
     def create_runtime_artifact(self, artifact_name, step_name, schema_title, input_mappings = None):
         #
         # See whether the artifact name shows up in input_mapping and if yes,
@@ -58,15 +85,24 @@ class ComponentRunner:
             },  
             #
             # The URI will be used to determine the local path at runtime. For a GCS bucket,
-            # the gs:// prefix will be replaced by /gcs or more precisely by the value of
-            # types.artifact_types._GCS_LOCAL_MOUNT_PREFIX
+            # the KFP executor will replace gs:// prefix  by /gcs or more precisely by the value of
+            # types.artifact_types._GCS_LOCAL_MOUNT_PREFIX - as we have patched this in the init method
+            # of this class, this should point into our local directory tree
             #
             "uri" : f"gs://{self.pipeline_root}/{uri_step_name}/{uri_artifact_name}"
         }
 
+    #
+    # Get a schema title for a class
+    #
     def get_schema_title_for_type(self, cls):
         return cls.schema_title     
 
+    #
+    # Assemble an executor input structure for a component, using the provided input mappings
+    # (see the comment for create_runtime_artifact)
+    # Input parameters will be taken from the kwargs
+    #
     def build_executor_input_from_function(self, comp, step_name, input_mappings = None, **kwargs):
         #
         # Strip off Python function and get its signature
@@ -157,6 +193,9 @@ class ComponentRunner:
             executor_input['outputs']['artifacts'] = output_artifacts
         return executor_input
 
+    #
+    # Run a step, using the provided kwargs and the provided input mappings
+    #
     def run_step(self, comp, step_name, verbose = False, input_mappings = None, **kwargs):
         #
         # Assemble executor input
@@ -195,9 +234,6 @@ def get_args():
                         help = "Generate a bit more output")
     return parser.parse_args()
 
-
-
-
 #
 # Get arguments
 #
@@ -207,7 +243,7 @@ args = get_args()
 #
 runner = ComponentRunner()
 #
-# Run steps of pipeline
+# Run the first step of our pipeline
 #
 runner.run_step(comp = pipeline_definition.create_data, 
          step_name = "create_data", 

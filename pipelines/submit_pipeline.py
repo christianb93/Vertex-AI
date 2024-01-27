@@ -18,7 +18,7 @@ pipeline_job = aip.PipelineJob(
     parameter_values = {
         "epochs" : 5000,
         "lr" : 0.05,
-        "items" : 1000,
+        "training_items" : 1000,
         "trials" : 100
     },
     project = google_project_id,

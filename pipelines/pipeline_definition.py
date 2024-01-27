@@ -10,13 +10,13 @@ google_region = os.environ.get("GOOGLE_REGION")
 @dsl.component(
     base_image = f"{google_region}-docker.pkg.dev/{google_project_id}/vertex-ai-docker-repo/pipeline:latest",
 )
-def create_data(google_project_id : str, google_region: str, data : Output[Dataset], items : int ):
+def create_data(data : Output[Dataset], training_items : int ):
     import numpy as np
     import torch
     import pickle
     X = []
     Y = []
-    for i in range(items):
+    for i in range(training_items):
         #
         # First do the label, then choose a point in a corresponding cluster
         #
@@ -41,8 +41,8 @@ def create_data(google_project_id : str, google_region: str, data : Output[Datas
     X = np.array(X)
     X = torch.tensor(X, dtype = torch.float32)
     Y = torch.tensor(Y, dtype = torch.float32)
-    assert X.shape == torch.Size([items, 2])
-    assert Y.shape == torch.Size([items])
+    assert X.shape == torch.Size([training_items, 2])
+    assert Y.shape == torch.Size([training_items])
     dataset = (X, Y)
     print(f"Writing training data to {data.path}")
     with open(data.path, "wb") as out:
@@ -122,10 +122,8 @@ def evaluate(trained_model : Input[Model], trials : int, metrics: Output[Metrics
 @dsl.pipeline(
     name = "my-pipeline"
 )
-def my_pipeline(epochs : int, lr : float, items : int, trials : int):
-    _create_data = create_data(google_project_id = google_project_id, 
-                               google_region = google_region, 
-                               items = items)
+def my_pipeline(epochs : int, lr : float, training_items : int, trials : int):
+    _create_data = create_data(training_items = training_items)
     _train = train(google_project_id = google_project_id,
                   google_region = google_region,
                   epochs = epochs,

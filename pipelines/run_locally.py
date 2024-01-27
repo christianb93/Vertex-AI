@@ -33,14 +33,6 @@ types.artifact_types._GCS_LOCAL_MOUNT_PREFIX = LOCAL_DIR
 # Parameter values for all steps. When we asssemble the executor input
 # for a step, we loo up parameters by name here
 #
-common_parameter_values = {
-            "epochs" : 1000,
-            "google_project_id" : os.environ.get("GOOGLE_PROJECT_ID"),
-            "google_region" : os.environ.get("GOOGLE_REGION"),
-            "items" : 1000,
-            "lr" : 0.05,
-            "trials" : 100
-        }
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -95,7 +87,7 @@ def get_schema_title_for_type(cls):
     return cls.schema_title     
 
 
-def build_executor_input_from_function(comp, step_name, input_mappings = None):
+def build_executor_input_from_function(comp, step_name, input_mappings = None, **kwargs):
     #
     # Strip off Python function and get its signature
     #
@@ -109,13 +101,13 @@ def build_executor_input_from_function(comp, step_name, input_mappings = None):
         param_name = param.name 
         if param_type == str or param_type == int or param_type == float:
             #
-            # Check that input is contained in common executor input
+            # Check that input is contained in kwargs
             #
-            assert param_name in common_parameter_values, f"Parameter {param_name} not in common parameter values"
+            assert param_name in kwargs, f"Parameter {param_name} not in parameter values"
             #
             # and take it from there
             #
-            parameter_values[param_name] = common_parameter_values[param_name]
+            parameter_values[param_name] = kwargs[param_name]
         if typing.get_origin(param_type) == typing.Annotated:
             #
             # This is an annotation like Output[Model]. Check whether it is input
@@ -182,11 +174,11 @@ def build_executor_input_from_function(comp, step_name, input_mappings = None):
     return executor_input
 
 
-def run_step(comp, step_name, verbose = False, input_mappings = None):
+def run_step(comp, step_name, verbose = False, input_mappings = None, **kwargs):
     #
     # Assemble executor input
     #
-    executor_input = build_executor_input_from_function(comp, step_name, input_mappings = input_mappings)
+    executor_input = build_executor_input_from_function(comp, step_name, input_mappings = input_mappings, **kwargs)
     if verbose: 
         print(f"Preparing step {step_name} - using executor input: \n{json.dumps(executor_input, indent = 4)}")
     #
@@ -220,7 +212,8 @@ args = get_args()
 #
 run_step(comp = pipeline_definition.create_data, 
          step_name = "create_data", 
-         verbose = args.verbose)
+         verbose = args.verbose,
+         training_items = 1000)
 #
 # Run step "train", using the artifact "data"
 # from step "create_data" as input for the parameter "data"
@@ -233,7 +226,12 @@ run_step(comp = pipeline_definition.train,
                  "from_artifact" : "data"
              }
          }, 
-         verbose = args.verbose)
+         verbose = args.verbose,
+         google_project_id = os.environ.get("GOOGLE_PROJECT_ID"),
+         google_region = os.environ.get("GOOGLE_REGION"),
+         epochs = 1000,
+         lr = 0.05
+         )
 #
 # Similarly run step evaluate
 #
@@ -245,4 +243,5 @@ run_step(comp = pipeline_definition.evaluate,
                  "from_artifact" : "trained_model"
              }
          }, 
-         verbose = args.verbose)
+         verbose = args.verbose,
+         trials = 100)

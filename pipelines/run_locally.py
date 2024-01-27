@@ -9,20 +9,22 @@ import pipeline_definition
 import shutil
 import argparse
 import os
-import pathlib
+import docker
 import json
-
+import pathlib
 
 #
 # A simple test driver to run an invidual pipeline component. This class works by building an executor input
 # structure that points to local data for a given component function and then uses the KFP executor to actually
-# run it. Currently, this only supports a subset of possible signatures - specifically we support only simple 
+# run it or runs a container. 
+# Currently, this only supports a subset of possible signatures - specifically we support only simple 
 # annotations like Output[Model] or int, but no lists as outputs and no function outputs (i.e. output parameters)
 #
 class ComponentRunner:
 
     #
-    # local_dir = the local directory under which inputs and outputs are placed
+    # local_dir = the local directory under which inputs and outputs are placed, not including
+    #             a trailing slash
     # pipeline_root = the name of the subdirectory under this local dir where artifacts
     # are created
     #
@@ -34,13 +36,13 @@ class ComponentRunner:
         # gs:// is turned into a path by replacing gs:// by this prefix. Usually this 
         # is /gcs, we overwrite this by our local directory
         #
-        types.artifact_types._GCS_LOCAL_MOUNT_PREFIX = self.local_dir
+        types.artifact_types._GCS_LOCAL_MOUNT_PREFIX = f"{self.local_dir}/"
 
     #
     # Define the local path for an input or output artifact of a given step
     # 
     def get_local_artifact_path(self, artifact_name, step_name):
-        output_dir = f"{self.local_dir}{self.pipeline_root}/{step_name}"
+        output_dir = f"{self.local_dir}/{self.pipeline_root}/{step_name}"
         if artifact_name is None:
             return output_dir
         return f"{output_dir}/{artifact_name}"
@@ -86,8 +88,8 @@ class ComponentRunner:
             #
             # The URI will be used to determine the local path at runtime. For a GCS bucket,
             # the KFP executor will replace gs:// prefix  by /gcs or more precisely by the value of
-            # types.artifact_types._GCS_LOCAL_MOUNT_PREFIX - as we have patched this in the init method
-            # of this class, this should point into our local directory tree
+            # types.artifact_types._GCS_LOCAL_MOUNT_PREFIX - as we have patched this in the constructor
+            # this should point into our local directory tree
             #
             "uri" : f"gs://{self.pipeline_root}/{uri_step_name}/{uri_artifact_name}"
         }
@@ -194,9 +196,11 @@ class ComponentRunner:
         return executor_input
 
     #
-    # Run a step, using the provided kwargs and the provided input mappings
+    # Run a step, using the provided kwargs and the provided input mappings. If no_container
+    # is True, no docker container will be launched but the code is executed locally in a separate
+    # executor
     #
-    def run_step(self, comp, step_name, verbose = False, input_mappings = None, **kwargs):
+    def run_step(self, comp, step_name, verbose = False, input_mappings = None, no_container = False, **kwargs):
         #
         # Assemble executor input
         #
@@ -209,22 +213,53 @@ class ComponentRunner:
         if "artifacts" in executor_input['outputs']:
             output_dir = self.get_local_artifact_path(step_name = step_name, artifact_name = None)
             os.makedirs(output_dir, exist_ok = True)
-        #
-        # Create executor 
-        #    
-        _executor = executor.Executor(
-                executor_input = executor_input, 
-                function_to_execute = comp)
+        if no_container:
+            #
+            # Create executor 
+            #    
+            _executor = executor.Executor(
+                    executor_input = executor_input, 
+                    function_to_execute = comp)
 
-        #
-        # Actually run it. The executor will use the executor input to 
-        # instantiate input and output artifacts, model etc. and then
-        # invoke the actual function with these inputs
-        #
-        output_file = _executor.execute()
-        if verbose: 
-            print(f"Execution of step {step_name} complete, output file has been written to {output_file}")
 
+            #
+            # Actually run it. The executor will use the executor input to 
+            # instantiate input and output artifacts, model etc. and then
+            # invoke the actual function with these inputs
+            #
+            output_file = _executor.execute()
+            if verbose: 
+                print(f"Execution of step {step_name} complete, output file has been written to {output_file}")
+        else:
+            #
+            # Run our component in a docker container
+            #
+            image = comp.component_spec.implementation.container.image
+            command = comp.component_spec.implementation.container.command
+            if verbose:
+                print(f"Command: {command}")
+            args = [
+                "--executor_input",
+                json.dumps(executor_input),
+                "--function_to_execute",
+                step_name
+            ]
+            docker_client = docker.from_env()
+            container = docker_client.containers.run(
+                image = image,
+                entrypoint = command,
+                command = args,
+                volumes = [
+                    f"{pathlib.Path(self.local_dir).resolve()}:/gcs",
+                ],
+                stderr = True,
+                stdout = True,
+                detach = True,
+            )
+            for l in container.logs(stream = True):
+                print(l.decode('utf-8'), end = "")
+            container.remove()
+            
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -232,6 +267,10 @@ def get_args():
                         action = "store_true",
                         default = False,
                         help = "Generate a bit more output")
+    parser.add_argument("--no_container", 
+                        action = "store_true",
+                        default = False,
+                        help = "Do not run in container")
     return parser.parse_args()
 
 #
@@ -248,7 +287,8 @@ runner = ComponentRunner()
 runner.run_step(comp = pipeline_definition.create_data, 
          step_name = "create_data", 
          verbose = args.verbose,
-         training_items = 1000)
+         training_items = 1000,
+         no_container = args.no_container)
 #
 # Run step "train", using the artifact "data"
 # from step "create_data" as input for the parameter "data"
@@ -265,7 +305,8 @@ runner.run_step(comp = pipeline_definition.train,
          google_project_id = os.environ.get("GOOGLE_PROJECT_ID"),
          google_region = os.environ.get("GOOGLE_REGION"),
          epochs = 1000,
-         lr = 0.05
+         lr = 0.05,
+         no_container = args.no_container
          )
 #
 # Similarly run step evaluate
@@ -279,4 +320,5 @@ runner.run_step(comp = pipeline_definition.evaluate,
              }
          }, 
          verbose = args.verbose,
-         trials = 100)
+         trials = 100, 
+         no_container = args.no_container)

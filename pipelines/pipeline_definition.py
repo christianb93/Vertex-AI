@@ -90,12 +90,11 @@ def train(google_project_id : str, google_region: str,
     torch.save(_model.state_dict(), trained_model.path)
 
 @dsl.component(
-    base_image = f"{google_region}-docker.pkg.dev/{google_project_id}/vertex-ai-docker-repo/pipeline:latest",
+    base_image = f"{google_region}-docker.pkg.dev/{google_project_id}/vertex-ai-docker-repo/pipeline:latest"
 )
 def evaluate(trained_model : Input[Model], trials : int, metrics: Output[Metrics]):
     import model 
     import torch
-    import pickle
     import numpy as np
     #
     # Load model

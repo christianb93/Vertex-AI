@@ -25,6 +25,8 @@ def handle_item(item, category, delete =  False, verbose = False):
     print(f"Found {category} {item.display_name} / {item.name} / {item.schema_title}")
     if verbose:
         print(f"   Metadata: {item.metadata}")
+        if isinstance(item, aip.Artifact):
+            print(f"   State {item.state}")
         if isinstance(item, aip.Context):
             for execution in item.get_executions():
                 print(f"   Execution {execution.display_name}")

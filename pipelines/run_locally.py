@@ -1,8 +1,7 @@
 #
 # Run a component locally
 #
-import inspect
-import typing
+import kfp
 from kfp.dsl import executor
 from kfp.dsl import types
 import pipeline_definition
@@ -82,61 +81,63 @@ class ComponentRunner:
         }
 
     #
-    # Get a schema title for a class
+    # Check whether an input or output is an artifact, a parameter and input or output
     #
-    def get_schema_title_for_type(self, cls):
-        return cls.schema_title     
+    def get_param_type(self, param_spec):
+        is_input = isinstance (param_spec, kfp.dsl.structures.InputSpec)
+        if param_spec.type == "Integer" or param_spec.type == "String" or param_spec.type == "Float":
+            is_artifact = False 
+        else:
+            is_artifact = True
+        return is_input, is_artifact
 
     #
     # Assemble an executor input structure for a component, using the provided input mappings
     # (see the comment for create_runtime_artifact)
     # Input parameters will be taken from the kwargs
     #
-    def build_executor_input_from_function(self, comp, step_name, input_mappings = None, **kwargs):
-        #
-        # Strip off Python function and get its signature
-        #
-        python_func = comp.python_func 
-        signature = inspect.signature(python_func)
+    def build_executor_input_from_function(self, comp, step_name, **kwargs):
+        inputs_and_outputs = { **comp.component_spec.inputs, **comp.component_spec.outputs }
         output_artifacts = {}
         input_artifacts = {}
         parameter_values = {}
         #
-        # Go through parameters and add data to input_artifacts and output_artifacts
-        # or to parameter_values
+        # Go through inputs and outputs and add items to input_artifacts and parameter_values
         #
-        for _, param in signature.parameters.items():
-            param_type = param.annotation
-            param_name = param.name 
-            if param_type == str or param_type == int or param_type == float:
+        for param_name, param_spec in inputs_and_outputs.items():
+            is_input, is_artifact = self.get_param_type(param_spec)
+            if not is_artifact:
                 #
-                # Check that input is contained in kwargs
-                #
-                assert param_name in kwargs, f"Parameter {param_name} not in parameter values"
-                #
-                # and take it from there
-                #
-                parameter_values[param_name] = kwargs[param_name]
-            if typing.get_origin(param_type) == typing.Annotated:
-                #
-                # This is an annotation like Output[Model]. Check whether it is input
-                # or output. We ignore more complex patterns like lists and so forth
-                # and only suppor what the KFP documentation calls the traditional style
-                #
-                args = typing.get_args(param_type)
-                if  args[1] == types.type_annotations.OutputAnnotation:
+                # This is a parameter - we only handle input parameters
+                # 
+                if is_input:
                     #
-                    # Get output type, for instance Model
-                    # 
-                    output_type = args[0]
-                    schema_title = self.get_schema_title_for_type(output_type)
+                    # Check that input is contained in kwargs
                     #
-                    # Add an entry to the output artifacts dictionary. Each entry
+                    assert param_name in kwargs, f"Parameter {param_name} not in parameter values"
+                    #
+                    # and take it from there
+                    #
+                    parameter_values[param_name] = kwargs[param_name]
+            else:
+                #
+                # If the input is contained in the kwargs, take it from there
+                #
+                if param_name in kwargs and is_input:
+                    input_artifacts[param_name] = kwargs[param_name]
+                else:
+                    #
+                    # Need to build the structure ourselves. We can get the schema
+                    # title and the schema version from the type
+                    #
+                    schema_title = param_spec.type.split("@")[0]
+                    #
+                    # Add an entry to the input artifacts dictionary. Each entry
                     # is a dictionary with the key artifacts. The value is a list
                     # (we only use one entry) and each item in the list is an actual
                     # artifact with name, metadata, schema and URI
                     #
-                    output_artifacts[param_name] = {
+                    run_artifact = {
                         "artifacts" : [
                             self.create_runtime_artifact(
                                 artifact_name = param_name, 
@@ -144,29 +145,11 @@ class ComponentRunner:
                                 schema_title = schema_title)
                         ]
                     }
-                if  args[1] == types.type_annotations.InputAnnotation:
-                    #
-                    # Same for input
-                    #
-                    input_type = args[0]
-                    schema_title = self.get_schema_title_for_type(input_type)
-                    #
-                    # If we have the input artifact name in the kwargs take
-                    # snippet from there
-                    #
-                    if param_name in kwargs:
-                        input_artifacts[param_name] = kwargs[param_name]
-                    else: 
-                        input_artifacts[param_name] = {
-                            "artifacts" : [
-                                self.create_runtime_artifact(
-                                    artifact_name = param_name, 
-                                    step_name = step_name,
-                                    schema_title = schema_title
-                                )
-                            ]
-                        }
-        
+                    if is_input:
+                        input_artifacts[param_name] = run_artifact
+                    else:
+                        output_artifacts[param_name] = run_artifact
+            
         #
         # Assemble the executor input structure. There are two sections that will later
         # be used by the executor:
@@ -281,6 +264,7 @@ args = get_args()
 # Create runner
 #
 with ComponentRunner() as runner:
+    print("Starting run")
     #
     # Run the first step of our pipeline
     #

@@ -56,7 +56,9 @@ def train(google_project_id : str, google_region: str,
                             lr : float,
                             data : Input[Dataset],  
                             trained_model : Output[Model],
-                            metrics: Output[Metrics]):
+                            metrics: Output[Metrics],
+                            job_name : str ):
+    print(f"Job name : {job_name}")
     #
     # Unpickle data again
     #
@@ -127,7 +129,15 @@ def my_pipeline(epochs : int, lr : float, training_items : int, trials : int):
                   google_region = google_region,
                   epochs = epochs,
                   lr = lr,
-                  data = _create_data.outputs['data'])
+                  data = _create_data.outputs['data'],
+                  #
+                  # This actually gets what is called the job ID in the
+                  # PipelineJob create method, i.e. unless overwritten there,
+                  # this is <display_name>-<timestamp>
+                  # It will be resolved at runtime, i.e. in the executor input
+                  # provided by VertexAI to our job
+                  #
+                  job_name = dsl.PIPELINE_JOB_NAME_PLACEHOLDER)
     _train.set_cpu_limit("2")
     _eval = evaluate(trained_model = _train.outputs['trained_model'],
                      trials = trials)

@@ -298,7 +298,8 @@ with ComponentRunner(no_container = args.no_container) as runner:
             google_project_id = os.environ.get("GOOGLE_PROJECT_ID"),
             google_region = os.environ.get("GOOGLE_REGION"),
             epochs = 1000,
-            lr = 0.05)
+            lr = 0.05, 
+            job_name = "my-run")
     #
     # Similarly run step evaluate
     #

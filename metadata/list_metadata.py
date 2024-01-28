@@ -27,6 +27,7 @@ def handle_item(item, category, delete =  False, verbose = False):
         print(f"   Metadata: {item.metadata}")
         if isinstance(item, aip.Artifact):
             print(f"   State {item.state}")
+            print(f"   URI {item.uri}")
         if isinstance(item, aip.Context):
             for execution in item.get_executions():
                 print(f"   Execution {execution.display_name}")

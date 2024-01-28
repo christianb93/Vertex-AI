@@ -270,6 +270,11 @@ def get_args():
 #
 args = get_args()
 #
+# Make sure that local ./gcs directory exists before we run a container
+# otherwise this will be added with owner root and we have a permission issue
+#
+os.makedirs("./gcs", exist_ok = True)
+#
 # Create runner
 #
 with ComponentRunner(no_container = args.no_container) as runner:

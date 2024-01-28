@@ -3,7 +3,6 @@
 #
 import kfp
 from kfp.dsl import executor
-from kfp.dsl import types
 import pipeline_definition
 import argparse
 import os
@@ -20,12 +19,21 @@ class StepOutput:
 
     outputs : dict()
 
-
+#
+# A simple component for testing this test driver
+#
+@kfp.dsl.component(
+        base_image = "python:3.9"
+)
+def say_hello():
+    print("Hello")
+    
 
 #
 # A simple test driver to run an invidual pipeline component. This class works by building an executor input
 # structure that points to local data for a given component function and then uses the KFP executor to actually
 # run it or runs a container. 
+#
 # Currently, this only supports a subset of possible signatures - specifically we support only simple 
 # annotations like Output[Model] or int, but no lists as outputs and no function outputs (i.e. output parameters)
 #
@@ -37,9 +45,10 @@ class ComponentRunner:
     # pipeline_root = the name of the subdirectory under this local dir where artifacts
     # are created
     #
-    def __init__(self, pipeline_root = "pipeline_root", local_dir = "./gcs"):
+    def __init__(self, pipeline_root = "pipeline_root", local_dir = "./gcs", no_container = False):
         self.local_dir = local_dir
         self.pipeline_root = pipeline_root
+        self._no_container = no_container
 
     def __enter__(self):
         #
@@ -47,13 +56,13 @@ class ComponentRunner:
         # gs:// is turned into a path by replacing gs:// by this prefix. Usually this 
         # is /gcs, we overwrite this by our local directory
         #
-        self._old_prefix = types.artifact_types._GCS_LOCAL_MOUNT_PREFIX
-        types.artifact_types._GCS_LOCAL_MOUNT_PREFIX = f"{self.local_dir}/"
+        self._old_prefix = kfp.dsl.types.artifact_types._GCS_LOCAL_MOUNT_PREFIX
+        kfp.dsl.types.artifact_types._GCS_LOCAL_MOUNT_PREFIX = f"{self.local_dir}/"
         return self
     
     def __exit__(self, exc_type, exc_value, exc_traceback):
-        types.artifact_types._GCS_LOCAL_MOUNT_PREFIX = self._old_prefix
-        return True
+        kfp.dsl.types.artifact_types._GCS_LOCAL_MOUNT_PREFIX = self._old_prefix
+        return False
 
     #
     # Create the part of an execution input JSON which specifies an individual artifact. Uusally
@@ -97,7 +106,7 @@ class ComponentRunner:
     # Input parameters will be taken from the kwargs
     #
     def build_executor_input_from_function(self, comp, step_name, **kwargs):
-        inputs_and_outputs = { **comp.component_spec.inputs, **comp.component_spec.outputs }
+        inputs_and_outputs = { **(comp.component_spec.inputs or {}), **(comp.component_spec.outputs or {})}
         output_artifacts = {}
         input_artifacts = {}
         parameter_values = {}
@@ -173,16 +182,14 @@ class ComponentRunner:
         return executor_input
 
     #
-    # Run a step, using the provided kwargs and the provided input mappings. If no_container
-    # is True, no docker container will be launched but the code is executed locally in a separate
-    # executor
+    # Run a step, using the provided kwargs and the provided input mappings. 
     #
     # We return a dataclass containing the output artifacts so that they can be used as input for the next
     # step in a syntax similar to a pipeline definition, i.e.
     # _first = run_step(...)
     # _second = run_step(..., <argument name> = _first.outputs['<argument_name>'])
     #
-    def run_step(self, comp, step_name, verbose = False, no_container = False, **kwargs):
+    def run_step(self, comp, step_name, verbose = False,  **kwargs):
         #
         # Assemble executor input
         #
@@ -195,7 +202,7 @@ class ComponentRunner:
         if "artifacts" in executor_input['outputs']:
             output_dir = f"{self.local_dir}/{self.pipeline_root}/{step_name}"
             os.makedirs(output_dir, exist_ok = True)
-        if no_container:
+        if self._no_container:
             #
             # Create executor 
             #    
@@ -240,7 +247,10 @@ class ComponentRunner:
             for l in container.logs(stream = True):
                 print(l.decode('utf-8'), end = "")
             container.remove()
-        return StepOutput(outputs = executor_input['outputs']['artifacts'] )
+        if "artifacts" in executor_input['outputs']:
+            return StepOutput(outputs = executor_input['outputs']['artifacts'] )
+        else:
+            return StepOutput(outputs = {})
         
             
 
@@ -263,16 +273,20 @@ args = get_args()
 #
 # Create runner
 #
-with ComponentRunner() as runner:
-    print("Starting run")
+with ComponentRunner(no_container = args.no_container) as runner:
+    #
+    # Be nice and say hello first
+    # 
+    runner.run_step(comp = say_hello,
+                    step_name = "say_hello",
+                    verbose = args.verbose)
     #
     # Run the first step of our pipeline
     #
     _create_data = runner.run_step(comp = pipeline_definition.create_data, 
             step_name = "create_data", 
             verbose = args.verbose,
-            training_items = 1000,
-            no_container = args.no_container)
+            training_items = 1000)
 
     #
     # Run step "train", using the artifact "data"
@@ -285,14 +299,11 @@ with ComponentRunner() as runner:
             google_project_id = os.environ.get("GOOGLE_PROJECT_ID"),
             google_region = os.environ.get("GOOGLE_REGION"),
             epochs = 1000,
-            lr = 0.05,
-            no_container = args.no_container
-            )
+            lr = 0.05)
     #
     # Similarly run step evaluate
     #
     runner.run_step(comp = pipeline_definition.evaluate, 
             step_name = "evaluate",
             trained_model = _train.outputs['trained_model'],
-            trials = 100, 
-            no_container = args.no_container)
+            trials = 100)

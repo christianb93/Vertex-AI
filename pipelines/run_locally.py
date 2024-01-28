@@ -91,13 +91,12 @@ class ComponentRunner:
 
     #
     # Check whether an input or output is an artifact, a parameter and input or output
+    # At the time of writing at least this can be detected by checking whether the
+    # type is a schema definition of the form <schema_title>@<schema_version>
     #
     def get_param_type(self, param_spec):
         is_input = isinstance (param_spec, kfp.dsl.structures.InputSpec)
-        if param_spec.type == "Integer" or param_spec.type == "String" or param_spec.type == "Float":
-            is_artifact = False 
-        else:
-            is_artifact = True
+        is_artifact = "@" in param_spec.type
         return is_input, is_artifact
 
     #

@@ -6,12 +6,22 @@ import typing
 from kfp.dsl import executor
 from kfp.dsl import types
 import pipeline_definition
-import shutil
 import argparse
 import os
 import docker
 import json
 import pathlib
+from dataclasses import dataclass
+
+#
+# This class holds step output artifacts
+#
+@dataclass
+class StepOutput:
+
+    outputs : dict()
+
+
 
 #
 # A simple test driver to run an invidual pipeline component. This class works by building an executor input
@@ -31,49 +41,27 @@ class ComponentRunner:
     def __init__(self, pipeline_root = "pipeline_root", local_dir = "./gcs"):
         self.local_dir = local_dir
         self.pipeline_root = pipeline_root
+
+    def __enter__(self):
         #
         # Patch GCS prefix. When initializing the executor, an URI starting with
         # gs:// is turned into a path by replacing gs:// by this prefix. Usually this 
         # is /gcs, we overwrite this by our local directory
         #
+        self._old_prefix = types.artifact_types._GCS_LOCAL_MOUNT_PREFIX
         types.artifact_types._GCS_LOCAL_MOUNT_PREFIX = f"{self.local_dir}/"
-
-    #
-    # Define the local path for an input or output artifact of a given step
-    # 
-    def get_local_artifact_path(self, artifact_name, step_name):
-        output_dir = f"{self.local_dir}/{self.pipeline_root}/{step_name}"
-        if artifact_name is None:
-            return output_dir
-        return f"{output_dir}/{artifact_name}"
+        return self
+    
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        types.artifact_types._GCS_LOCAL_MOUNT_PREFIX = self._old_prefix
+        return True
 
     #
     # Create the part of an execution input JSON which specifies an individual artifact. Uusally
     # the URI used for this is 
     # gs://{pipeline_root}/{step_name}/{artifact_name}
-    # The input_mappings parameter can be used to let the URI point to an output from a 
-    # different step, and is a mapping whose keys are the names of the artifacts. If, for instance, 
-    # there is an entry
-    # "artifact_name" : {
-    #                      "from_step" : "train",
-    #                      "from_artifact" : "model"
-    #                   }
-    # then the URI used for the artifact (usually an input artifact) "artifact_name" will be
-    # gs://{pipeline_root}/train/model
-    # so that we read from the output artifact model of the step train 
     # 
-    def create_runtime_artifact(self, artifact_name, step_name, schema_title, input_mappings = None):
-        #
-        # See whether the artifact name shows up in input_mapping and if yes,
-        # use that step and artifact name for the URI so that we use the output
-        # of that step as input artifact
-        #
-        uri_step_name = step_name
-        uri_artifact_name = artifact_name    
-        if input_mappings is not None:
-            if artifact_name in input_mappings:
-                uri_step_name = input_mappings[artifact_name]['from_step']
-                uri_artifact_name = input_mappings[artifact_name]['from_artifact']
+    def create_runtime_artifact(self, artifact_name, step_name, schema_title):
         #
         # This dictionary represents a runtime artifact,
         # i.e. an instance of one of the classes in dsl.types.artifact_types
@@ -88,10 +76,9 @@ class ComponentRunner:
             #
             # The URI will be used to determine the local path at runtime. For a GCS bucket,
             # the KFP executor will replace gs:// prefix  by /gcs or more precisely by the value of
-            # types.artifact_types._GCS_LOCAL_MOUNT_PREFIX - as we have patched this in the constructor
-            # this should point into our local directory tree
+            # types.artifact_types._GCS_LOCAL_MOUNT_PREFIX - this is what we patch in the __enter__ method
             #
-            "uri" : f"gs://{self.pipeline_root}/{uri_step_name}/{uri_artifact_name}"
+            "uri" : f"gs://{self.pipeline_root}/{step_name}/{artifact_name}"
         }
 
     #
@@ -163,15 +150,22 @@ class ComponentRunner:
                     #
                     input_type = args[0]
                     schema_title = self.get_schema_title_for_type(input_type)
-                    input_artifacts[param_name] = {
-                        "artifacts" : [
-                            self.create_runtime_artifact(
-                                artifact_name = param_name, 
-                                step_name = step_name,
-                                schema_title = schema_title,
-                                input_mappings = input_mappings)
-                        ]
-                    }
+                    #
+                    # If we have the input artifact name in the kwargs take
+                    # snippet from there
+                    #
+                    if param_name in kwargs:
+                        input_artifacts[param_name] = kwargs[param_name]
+                    else: 
+                        input_artifacts[param_name] = {
+                            "artifacts" : [
+                                self.create_runtime_artifact(
+                                    artifact_name = param_name, 
+                                    step_name = step_name,
+                                    schema_title = schema_title
+                                )
+                            ]
+                        }
         
         #
         # Assemble the executor input structure. There are two sections that will later
@@ -200,18 +194,23 @@ class ComponentRunner:
     # is True, no docker container will be launched but the code is executed locally in a separate
     # executor
     #
-    def run_step(self, comp, step_name, verbose = False, input_mappings = None, no_container = False, **kwargs):
+    # We return a dataclass containing the output artifacts so that they can be used as input for the next
+    # step in a syntax similar to a pipeline definition, i.e.
+    # _first = run_step(...)
+    # _second = run_step(..., <argument name> = _first.outputs['<argument_name>'])
+    #
+    def run_step(self, comp, step_name, verbose = False, no_container = False, **kwargs):
         #
         # Assemble executor input
         #
-        executor_input = self.build_executor_input_from_function(comp, step_name, input_mappings = input_mappings, **kwargs)
+        executor_input = self.build_executor_input_from_function(comp, step_name, **kwargs)
         if verbose: 
             print(f"Preparing step {step_name} - using executor input: \n{json.dumps(executor_input, indent = 4)}")
         #
         # Make sure that output directory exists
         # 
         if "artifacts" in executor_input['outputs']:
-            output_dir = self.get_local_artifact_path(step_name = step_name, artifact_name = None)
+            output_dir = f"{self.local_dir}/{self.pipeline_root}/{step_name}"
             os.makedirs(output_dir, exist_ok = True)
         if no_container:
             #
@@ -221,9 +220,8 @@ class ComponentRunner:
                     executor_input = executor_input, 
                     function_to_execute = comp)
 
-
-            #
-            # Actually run it. The executor will use the executor input to 
+            # 
+            # Run it. The executor will use the executor input to 
             # instantiate input and output artifacts, model etc. and then
             # invoke the actual function with these inputs
             #
@@ -259,6 +257,8 @@ class ComponentRunner:
             for l in container.logs(stream = True):
                 print(l.decode('utf-8'), end = "")
             container.remove()
+        return StepOutput(outputs = executor_input['outputs']['artifacts'] )
+        
             
 
 def get_args():
@@ -280,45 +280,35 @@ args = get_args()
 #
 # Create runner
 #
-runner = ComponentRunner()
-#
-# Run the first step of our pipeline
-#
-runner.run_step(comp = pipeline_definition.create_data, 
-         step_name = "create_data", 
-         verbose = args.verbose,
-         training_items = 1000,
-         no_container = args.no_container)
-#
-# Run step "train", using the artifact "data"
-# from step "create_data" as input for the parameter "data"
-#
-runner.run_step(comp = pipeline_definition.train, 
-         step_name = "train",
-         input_mappings = {
-             "data" : {
-                 "from_step" : "create_data",
-                 "from_artifact" : "data"
-             }
-         }, 
-         verbose = args.verbose,
-         google_project_id = os.environ.get("GOOGLE_PROJECT_ID"),
-         google_region = os.environ.get("GOOGLE_REGION"),
-         epochs = 1000,
-         lr = 0.05,
-         no_container = args.no_container
-         )
-#
-# Similarly run step evaluate
-#
-runner.run_step(comp = pipeline_definition.evaluate, 
-         step_name = "evaluate",
-         input_mappings = {
-             "trained_model" : {
-                 "from_step" : "train",
-                 "from_artifact" : "trained_model"
-             }
-         }, 
-         verbose = args.verbose,
-         trials = 100, 
-         no_container = args.no_container)
+with ComponentRunner() as runner:
+    #
+    # Run the first step of our pipeline
+    #
+    _create_data = runner.run_step(comp = pipeline_definition.create_data, 
+            step_name = "create_data", 
+            verbose = args.verbose,
+            training_items = 1000,
+            no_container = args.no_container)
+
+    #
+    # Run step "train", using the artifact "data"
+    # from step "create_data" as input for the parameter "data"
+    #
+    _train = runner.run_step(comp = pipeline_definition.train, 
+            step_name = "train",
+            data = _create_data.outputs['data'],
+            verbose = args.verbose,
+            google_project_id = os.environ.get("GOOGLE_PROJECT_ID"),
+            google_region = os.environ.get("GOOGLE_REGION"),
+            epochs = 1000,
+            lr = 0.05,
+            no_container = args.no_container
+            )
+    #
+    # Similarly run step evaluate
+    #
+    runner.run_step(comp = pipeline_definition.evaluate, 
+            step_name = "evaluate",
+            trained_model = _train.outputs['trained_model'],
+            trials = 100, 
+            no_container = args.no_container)

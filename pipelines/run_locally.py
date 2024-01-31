@@ -290,7 +290,7 @@ with ComponentRunner(no_container = args.no_container) as runner:
     _create_data = runner.run_step(comp = pipeline_definition.create_data, 
             step_name = "create_data", 
             verbose = args.verbose,
-            training_items = 1000)
+            size = 1000)
 
     #
     # Run step "train", using the artifact "data"
@@ -298,10 +298,8 @@ with ComponentRunner(no_container = args.no_container) as runner:
     #
     _train = runner.run_step(comp = pipeline_definition.train, 
             step_name = "train",
-            data = _create_data.outputs['data'],
+            data = _create_data.outputs['training_data'],
             verbose = args.verbose,
-            google_project_id = os.environ.get("GOOGLE_PROJECT_ID"),
-            google_region = os.environ.get("GOOGLE_REGION"),
             epochs = 1000,
             lr = 0.05, 
             job_name = "my-run")
@@ -311,4 +309,4 @@ with ComponentRunner(no_container = args.no_container) as runner:
     runner.run_step(comp = pipeline_definition.evaluate, 
             step_name = "evaluate",
             trained_model = _train.outputs['trained_model'],
-            trials = 100)
+            validation_data = _create_data.outputs['validation_data'])

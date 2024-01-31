@@ -1,8 +1,10 @@
-from kfp import dsl
+from kfp import dsl, compiler
 from kfp.dsl import Output, Model, Input, Dataset, Metrics
-from kfp import compiler
 import os
 
+#
+# Get Google project ID and region from enironment
+#
 google_project_id = os.environ.get("GOOGLE_PROJECT_ID")
 google_region = os.environ.get("GOOGLE_REGION")
 
@@ -10,13 +12,24 @@ google_region = os.environ.get("GOOGLE_REGION")
 @dsl.component(
     base_image = f"{google_region}-docker.pkg.dev/{google_project_id}/vertex-ai-docker-repo/pipeline:latest",
 )
-def create_data(data : Output[Dataset], training_items : int ):
+def create_data(training_data : Output[Dataset], 
+                validation_data : Output[Dataset],
+                size : int ):
+    """
+    Create training- and validation data with a 80/20 split
+
+    Args:
+        size : the number of items in the dataset overall 
+        training_data : the training data set
+        validation_data : the validation data set 
+
+    """
     import numpy as np
     import torch
     import pickle
     X = []
     Y = []
-    for i in range(training_items):
+    for i in range(size):
         #
         # First do the label, then choose a point in a corresponding cluster
         #
@@ -41,23 +54,39 @@ def create_data(data : Output[Dataset], training_items : int ):
     X = np.array(X)
     X = torch.tensor(X, dtype = torch.float32)
     Y = torch.tensor(Y, dtype = torch.float32)
-    assert X.shape == torch.Size([training_items, 2])
-    assert Y.shape == torch.Size([training_items])
-    dataset = (X, Y)
-    print(f"Writing training data to {data.path}")
-    with open(data.path, "wb") as out:
-        pickle.dump(dataset, out)
+    assert X.shape == torch.Size([size, 2])
+    assert Y.shape == torch.Size([size])
+    split = int(size*0.8)
+    training_dataset = (X[:split], Y[:split])
+    validation_dataset = (X[split:], Y[split:])
+    print(f"Writing training data to {training_data.path}")
+    with open(training_data.path, "wb") as out:
+        pickle.dump(training_dataset, out)
+    print(f"Writing validation data to {validation_data.path}")
+    with open(validation_data.path, "wb") as out:
+        pickle.dump(validation_dataset, out)
+
 
 @dsl.component(
     base_image = f"{google_region}-docker.pkg.dev/{google_project_id}/vertex-ai-docker-repo/pipeline:latest",
 )
-def train(google_project_id : str, google_region: str, 
-                            epochs : int, 
-                            lr : float,
-                            data : Input[Dataset],  
-                            trained_model : Output[Model],
-                            metrics: Output[Metrics],
-                            job_name : str ):
+def train(epochs : int, 
+            lr : float,
+            data : Input[Dataset],  
+            trained_model : Output[Model],
+            metrics: Output[Metrics],
+            job_name : str ):
+    """
+    Do the actual training. This is a simple binary classification model
+
+    Args:
+        epochs : epochs
+        lr : learning rate
+        trained_model : model output 
+        metrics : training metrics
+        job_name : the name of the pipeline job in which this executes
+
+    """
     print(f"Job name : {job_name}")
     #
     # Unpickle data again
@@ -65,7 +94,7 @@ def train(google_project_id : str, google_region: str,
     import pickle
     with open(data.path, "rb") as file:
         X, Y = pickle.load(file)
-    print(f"Got {len(X)} rows of training data")#
+    print(f"Got {len(X)} rows of training data")
     import model    
     import torch
     _model = model.Model()
@@ -94,7 +123,18 @@ def train(google_project_id : str, google_region: str,
 @dsl.component(
     base_image = f"{google_region}-docker.pkg.dev/{google_project_id}/vertex-ai-docker-repo/pipeline:latest"
 )
-def evaluate(trained_model : Input[Model], trials : int, metrics: Output[Metrics]):
+def evaluate(trained_model : Input[Model], 
+             validation_data : Input[Dataset], 
+             metrics: Output[Metrics]):
+    """
+    Evaluate the model
+
+    Args:
+        trained_model : the model to be evaluated
+        validation_data : the validation data
+        metrics : metric artifact to which we log the result of the validation
+
+    """
     import model 
     import torch
     import numpy as np
@@ -105,17 +145,19 @@ def evaluate(trained_model : Input[Model], trials : int, metrics: Output[Metrics
     with open(trained_model.path, "rb") as file:
         _model.load_state_dict(torch.load(file))
     hits = 0 
-    for t in range(trials):
-        label = np.random.randint(0, 2)
-        if label == 0:
-            x = np.array([ 0.5, 0.25 ])
-        else:
-            x = np.array([ 0.5, 0.75 ])
-        x = x + 0.05 * np.random.random(2)
-        prediction = _model.predict(torch.tensor(x, dtype = torch.float32))
+    #
+    # Unpickle validation data
+    #
+    import pickle
+    with open(validation_data.path, "rb") as file:
+        X, Y = pickle.load(file)
+    print(f"Got {len(X)} rows of validation data")
+    for t, x in enumerate(X):
+        label = Y[t]
+        prediction = _model.predict(x)
         if prediction == label:
             hits = hits + 1
-        accuracy = 100.0 * hits / trials
+        accuracy = 100.0 * hits / len(X)
     print(f"Accuracy: {accuracy}")
     metrics.log_metric("accuracy", accuracy)
 
@@ -123,13 +165,11 @@ def evaluate(trained_model : Input[Model], trials : int, metrics: Output[Metrics
 @dsl.pipeline(
     name = "my-pipeline"
 )
-def my_pipeline(epochs : int, lr : float, training_items : int, trials : int):
-    _create_data = create_data(training_items = training_items)
-    _train = train(google_project_id = google_project_id,
-                  google_region = google_region,
-                  epochs = epochs,
+def my_pipeline(epochs : int, lr : float, size : int):
+    _create_data = create_data(size = size)
+    _train = train(epochs = epochs,
                   lr = lr,
-                  data = _create_data.outputs['data'],
+                  data = _create_data.outputs['training_data'],
                   #
                   # This actually gets what is called the job ID in the
                   # PipelineJob create method, i.e. unless overwritten there,
@@ -140,7 +180,7 @@ def my_pipeline(epochs : int, lr : float, training_items : int, trials : int):
                   job_name = dsl.PIPELINE_JOB_NAME_PLACEHOLDER)
     _train.set_cpu_limit("2")
     _eval = evaluate(trained_model = _train.outputs['trained_model'],
-                     trials = trials)
+                     validation_data = _create_data.outputs['validation_data'])
 
 
 if __name__ == "__main__":
@@ -148,4 +188,4 @@ if __name__ == "__main__":
     # Compile
     #
     compiler.Compiler().compile(pipeline_func = my_pipeline, 
-                            package_path = "my-pipeline.yaml")
+                            package_path = "my-pipeline.json")

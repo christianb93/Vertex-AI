@@ -59,3 +59,15 @@ metrics = experiment_run.get_metrics()
 
 print(f"Logged parameters: {parameters}")
 print(f"Logged metrics:    {metrics}")
+
+#
+# Get lineage subgraph from this experiment run. To do this, we first have to 
+# get access to the metadata node. We use the public API instead of the private
+# _metadata_node attribute
+# 
+def get_context(experiment_run):
+    return aip.Context(
+        experiment_run.resource_name
+    )
+lineage = get_context(experiment_run).query_lineage_subgraph()
+print(f"Full lineage graph of context: \n{lineage}")

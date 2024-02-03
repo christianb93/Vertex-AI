@@ -16,7 +16,6 @@ from dataclasses import dataclass
 #
 @dataclass
 class StepOutput:
-
     outputs : dict()
 
 #
@@ -29,23 +28,22 @@ def say_hello():
     print("Hello")
     
 
-#
-# A simple test driver to run an invidual pipeline component. This class works by building an executor input
-# structure that points to local data for a given component function and then uses the KFP executor to actually
-# run it or runs a container. 
-#
-# Currently, this only supports a subset of possible signatures - specifically we support only simple 
-# annotations like Output[Model] or int, but no lists as outputs and no function outputs (i.e. output parameters)
-#
 class ComponentRunner:
+    """
+    A simple test driver to run an invidual pipeline component. This class works by building an executor input
+    structure that points to local data for a given component function and then uses the KFP executor to actually
+    run it or runs a container. 
 
-    #
-    # local_dir = the local directory under which inputs and outputs are placed, not including
-    #             a trailing slash
-    # pipeline_root = the name of the subdirectory under this local dir where artifacts
-    # are created
-    #
+    """
     def __init__(self, pipeline_root = "pipeline_root", local_dir = "./gcs", no_container = False):
+        """
+        Initialize a component runner
+
+        Args:
+            local_dir :  the local directory under which inputs and outputs are placed, not including a trailing slash
+            pipeline_root : the name of the subdirectory under this local dir where artifacts are created
+            no_container : set this to True to run outside of a container
+        """
         self.local_dir = local_dir
         self.pipeline_root = pipeline_root
         self._no_container = no_container
@@ -64,12 +62,16 @@ class ComponentRunner:
         kfp.dsl.types.artifact_types._GCS_LOCAL_MOUNT_PREFIX = self._old_prefix
         return False
 
-    #
-    # Create the part of an execution input JSON which specifies an individual artifact. Uusally
-    # the URI used for this is 
-    # gs://{pipeline_root}/{step_name}/{artifact_name}
-    # 
     def create_runtime_artifact(self, artifact_name, step_name, schema_title):
+        """
+        Create the part of an execution input JSON which specifies an individual artifact. Uusally the URI used for this is 
+        gs://{pipeline_root}/{step_name}/{artifact_name}
+    
+        Args:
+            artifact_name : the name of the artifact
+            step_name : the name of the step, this will be used as part of the URI
+            schema_title : schema title to use for this artifact
+        """
         #
         # This dictionary represents a runtime artifact,
         # i.e. an instance of one of the classes in dsl.types.artifact_types
@@ -89,22 +91,31 @@ class ComponentRunner:
             "uri" : f"gs://{self.pipeline_root}/{step_name}/{artifact_name}"
         }
 
-    #
-    # Check whether an input or output is an artifact, a parameter and input or output
-    # At the time of writing at least this can be detected by checking whether the
-    # type is a schema definition of the form <schema_title>@<schema_version>
-    #
     def get_param_type(self, param_spec):
+        """
+        Check whether an input or output is an artifact, a parameter and input or output. 
+        At the time of writing at least this can be detected by checking whether the type is a schema definition 
+        of the form <schema_title>@<schema_version>
+        
+        Args:
+            param_spec : the parameter specifaction to inspect
+
+        """
         is_input = isinstance (param_spec, kfp.dsl.structures.InputSpec)
         is_artifact = "@" in param_spec.type
         return is_input, is_artifact
 
-    #
-    # Assemble an executor input structure for a component, using the provided input mappings
-    # (see the comment for create_runtime_artifact)
-    # Input parameters will be taken from the kwargs
-    #
     def build_executor_input_from_function(self, comp, step_name, **kwargs):
+        """
+        Assemble an executor input structure for a component, using the provided input mappings
+        (see the comment for create_runtime_artifact). Input parameters will be taken from the kwargs
+
+        Args:
+            comp : the component for which we want to create the executor input, needs to be an instance of PythonComponent
+            step_name : the step name
+            kwargs : additional key word arguments used as inputs
+
+        """
         inputs_and_outputs = { **(comp.component_spec.inputs or {}), **(comp.component_spec.outputs or {})}
         output_artifacts = {}
         input_artifacts = {}
@@ -180,18 +191,23 @@ class ComponentRunner:
             executor_input['outputs']['artifacts'] = output_artifacts
         return executor_input
 
-    #
-    # Run a step, using the provided kwargs and the provided input mappings. 
-    #
-    # We return a dataclass containing the output artifacts so that they can be used as input for the next
-    # step in a syntax similar to a pipeline definition, i.e.
-    # _first = run_step(...)
-    # _second = run_step(..., <argument name> = _first.outputs['<argument_name>'])
-    #
     def run_step(self, comp, step_name, verbose = False,  **kwargs):
-        #
-        # Assemble executor input
-        #
+        """
+        Run a step, using the provided kwargs and the provided input mappings. 
+    
+        We return a dataclass containing the output artifacts so that they can be used as input for the next
+        step in a syntax similar to a pipeline definition, i.e.
+
+        _first = run_step(...)
+        _second = run_step(..., <argument name> = _first.outputs['<argument_name>'])
+
+        Args:
+            comp : the PythonComponent to run
+            step_name : a step name (needs to be unique)
+            verbose : set this to True to collect extra output
+            kwargs : key word arguments that will be used as input parameters for the step        
+        
+        """
         executor_input = self.build_executor_input_from_function(comp, step_name, **kwargs)
         if verbose: 
             print(f"Preparing step {step_name} - using executor input: \n{json.dumps(executor_input, indent = 4)}")

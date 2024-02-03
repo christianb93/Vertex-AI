@@ -263,6 +263,8 @@ class ComponentRunner:
                 print(l.decode('utf-8'), end = "")
             container.remove()
         if "artifacts" in executor_input['outputs']:
+            # TODO: also consider the data in the output file here to 
+            # learn about parameter outputs and updated metadata
             return StepOutput(outputs = executor_input['outputs']['artifacts'] )
         else:
             return StepOutput(outputs = {})

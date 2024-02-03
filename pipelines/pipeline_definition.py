@@ -125,7 +125,7 @@ def train(epochs : int,
 )
 def evaluate(trained_model : Input[Model], 
              validation_data : Input[Dataset], 
-             metrics: Output[Metrics]):
+             metrics: Output[Metrics]) -> float:
     """
     Evaluate the model
 
@@ -133,6 +133,9 @@ def evaluate(trained_model : Input[Model],
         trained_model : the model to be evaluated
         validation_data : the validation data
         metrics : metric artifact to which we log the result of the validation
+    
+    Returns:
+        the accuracy of the model (a float in the range 0 to 100)
 
     """
     import model 
@@ -160,7 +163,7 @@ def evaluate(trained_model : Input[Model],
         accuracy = 100.0 * hits / len(X)
     print(f"Accuracy: {accuracy}")
     metrics.log_metric("accuracy", accuracy)
-
+    return accuracy
 
 @dsl.pipeline(
     name = "my-pipeline"
@@ -181,7 +184,6 @@ def my_pipeline(epochs : int, lr : float, size : int):
     _train.set_cpu_limit("2")
     _eval = evaluate(trained_model = _train.outputs['trained_model'],
                      validation_data = _create_data.outputs['validation_data'])
-
 
 if __name__ == "__main__":
     #

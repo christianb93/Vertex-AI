@@ -75,7 +75,11 @@ def train(epochs : int,
             data : Input[Dataset],  
             trained_model : Output[Model],
             metrics: Output[Metrics],
-            job_name : str ):
+            job_name : str,
+            google_project_id : str,
+            google_region : str ,
+            experiment_name : str = None,
+):
     """
     Do the actual training. This is a simple binary classification model
 
@@ -88,6 +92,26 @@ def train(epochs : int,
 
     """
     print(f"Job name : {job_name}")
+    #
+    # Prepare tensorboard
+    #
+    if experiment_name is not None:
+        print(f"Preparing tensorboard run for experiment {experiment_name} and run {job_name}")
+        import os 
+        import tb_utils
+
+
+        #
+        # Create run
+        #
+        tb_run = tb_utils.TensorBoardExperimentRun(
+            google_project_id = google_project_id,
+            google_region = google_region,
+            experiment_name = experiment_name,
+            experiment_run_name = job_name
+        )
+    else:
+        tb_run = None
     #
     # Unpickle data again
     #
@@ -113,6 +137,11 @@ def train(epochs : int,
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        if tb_run is not None and 0 == (e % 100):
+            tb_run.log_time_series_metrics({
+                "loss" : loss.item(),
+            },
+            step = e)
     print(f"Final loss: {loss.item()}")
     metrics.log_metric("final_loss", loss.item())
     #
@@ -168,7 +197,7 @@ def evaluate(trained_model : Input[Model],
 @dsl.pipeline(
     name = "my-pipeline"
 )
-def my_pipeline(epochs : int, lr : float, size : int):
+def my_pipeline(epochs : int, lr : float, size : int, experiment_name : str = None):
     _create_data = create_data(size = size)
     _train = train(epochs = epochs,
                   lr = lr,
@@ -180,7 +209,11 @@ def my_pipeline(epochs : int, lr : float, size : int):
                   # It will be resolved at runtime, i.e. in the executor input
                   # provided by VertexAI to our job
                   #
-                  job_name = dsl.PIPELINE_JOB_NAME_PLACEHOLDER)
+                  job_name = dsl.PIPELINE_JOB_NAME_PLACEHOLDER,
+                  google_project_id = google_project_id, 
+                  google_region = google_region,
+                  experiment_name = experiment_name
+)
     _train.set_cpu_limit("2")
     _eval = evaluate(trained_model = _train.outputs['trained_model'],
                      validation_data = _create_data.outputs['validation_data'])

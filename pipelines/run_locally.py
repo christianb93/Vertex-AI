@@ -10,6 +10,9 @@ import docker
 import json
 import pathlib
 from dataclasses import dataclass
+import time
+import shutil
+
 
 #
 # This class holds step output artifacts
@@ -191,7 +194,7 @@ class ComponentRunner:
             executor_input['outputs']['artifacts'] = output_artifacts
         return executor_input
 
-    def run_step(self, comp, step_name, verbose = False,  **kwargs):
+    def run_step(self, comp, step_name, verbose = False,  key_json = None, **kwargs):
         """
         Run a step, using the provided kwargs and the provided input mappings. 
     
@@ -205,7 +208,8 @@ class ComponentRunner:
             comp : the PythonComponent to run
             step_name : a step name (needs to be unique)
             verbose : set this to True to collect extra output
-            kwargs : key word arguments that will be used as input parameters for the step        
+            kwargs : key word arguments that will be used as input parameters for the step      
+            key_json : optional - full path of a service account key JSON file that we will use 
         
         """
         executor_input = self.build_executor_input_from_function(comp, step_name, **kwargs)
@@ -248,6 +252,13 @@ class ComponentRunner:
                 step_name
             ]
             docker_client = docker.from_env()
+            #
+            # Figure out whether we have credentials
+            #
+            env = {}
+            if key_json is not None:
+                shutil.copy(key_json, f"{self.local_dir}/key.json")
+                env["GOOGLE_APPLICATION_CREDENTIALS"] = f"/gcs/key.json"
             container = docker_client.containers.run(
                 image = image,
                 entrypoint = command,
@@ -258,6 +269,7 @@ class ComponentRunner:
                 stderr = True,
                 stdout = True,
                 detach = True,
+                environment = env
             )
             for l in container.logs(stream = True):
                 print(l.decode('utf-8'), end = "")
@@ -281,12 +293,25 @@ def get_args():
                         action = "store_true",
                         default = False,
                         help = "Do not run in container")
+    parser.add_argument("--experiment", 
+                        type = str,
+                        default = None,
+                        help = "Experiment to use")
+    parser.add_argument("--key_json", 
+                        type = str,
+                        default = None,
+                        help = "JSON service account key")
     return parser.parse_args()
 
 #
 # Get arguments
 #
 args = get_args()
+#
+# Get Google project ID and region from enironment
+#
+google_project_id = os.environ.get("GOOGLE_PROJECT_ID")
+google_region = os.environ.get("GOOGLE_REGION")
 #
 # Make sure that local ./gcs directory exists before we run a container
 # otherwise this will be added with owner root and we have a permission issue
@@ -314,13 +339,19 @@ with ComponentRunner(no_container = args.no_container) as runner:
     # Run step "train", using the artifact "data"
     # from step "create_data" as input for the parameter "data"
     #
+    timestamp = time.strftime("%Y%m%d%H%M%S",time.localtime())
     _train = runner.run_step(comp = pipeline_definition.train, 
             step_name = "train",
+            key_json = args.key_json,
             data = _create_data.outputs['training_data'],
             verbose = args.verbose,
             epochs = 1000,
             lr = 0.05, 
-            job_name = "my-run")
+            job_name = f"my-run-{timestamp}",
+            google_project_id = google_project_id,
+            google_region = google_region, 
+            experiment_name = args.experiment,
+)
     #
     # Similarly run step evaluate
     #

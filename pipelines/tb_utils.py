@@ -31,6 +31,11 @@ class TensorBoardExperimentRun:
         #
         self._experiment_name = experiment_name
         self._experiment_run_name = experiment_run_name
+        aip.init(
+            project = google_project_id,
+            location = google_region,
+            experiment = experiment_name
+        )
         self._experiment = aip.Experiment.get(experiment_name)
         assert self._experiment is not None, f"Could not find experiment {experiment_name}"
         #

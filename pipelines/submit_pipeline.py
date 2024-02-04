@@ -45,7 +45,8 @@ pipeline_job = aip.PipelineJob(
         "size" : 1000,
     },
     project = google_project_id,
-    location = google_region
+    location = google_region,
+    experiment_name = args.experiment
 )
 
 #

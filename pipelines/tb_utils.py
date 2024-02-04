@@ -45,7 +45,9 @@ class TensorBoardExperimentRun:
         assert backing_tensorboard_resource_name is not None, "Could not find backing tensorboard for this experiment, did you use init?"
         self._backing_tensorboard = aip.Tensorboard(backing_tensorboard_resource_name)
         #
-        # Create a tensorboard experiment if it does not yet exist
+        # Create a tensorboard experiment if it does not yet exist. Note that we need to use the same name
+        # as the underlying Vertex AI experiment so that the console can associate these two items and display
+        # the correct link
         #
         try:
             tb_experiment = aip.TensorboardExperiment(

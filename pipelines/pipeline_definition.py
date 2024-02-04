@@ -190,4 +190,4 @@ if __name__ == "__main__":
     # Compile
     #
     compiler.Compiler().compile(pipeline_func = my_pipeline, 
-                            package_path = "my-pipeline.json")
+                            package_path = "my-pipeline.yaml")

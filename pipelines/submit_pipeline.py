@@ -43,10 +43,10 @@ pipeline_job = aip.PipelineJob(
         "epochs" : 5000,
         "lr" : 0.05,
         "size" : 1000,
+        "experiment_name" : args.experiment
     },
     project = google_project_id,
-    location = google_region,
-    experiment_name = args.experiment
+    location = google_region
 )
 
 #

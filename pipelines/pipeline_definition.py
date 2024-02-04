@@ -1,5 +1,5 @@
 from kfp import dsl, compiler
-from kfp.dsl import Output, Model, Input, Dataset, Metrics
+from kfp.dsl import Output, Model, Input, Dataset, Metrics, Markdown
 import os
 
 #
@@ -154,7 +154,8 @@ def train(epochs : int,
 )
 def evaluate(trained_model : Input[Model], 
              validation_data : Input[Dataset], 
-             metrics: Output[Metrics]) -> float:
+             metrics: Output[Metrics],
+             model_card : Output[Markdown]) -> float:
     """
     Evaluate the model
 
@@ -192,6 +193,17 @@ def evaluate(trained_model : Input[Model],
         accuracy = 100.0 * hits / len(X)
     print(f"Accuracy: {accuracy}")
     metrics.log_metric("accuracy", accuracy)
+    #
+    # Write to model card - of course this is
+    # just a toy example, for real use cases you might
+    # want to consider a toolkit like Googles Model Card Toolkit
+    #
+    with open(model_card.path, "w") as model_card:
+        model_card.write("# Model card\n\n")
+        model_card.write("| Item | Value |\n")
+        model_card.write("| --- | --- |\n")
+        model_card.write(f"| Accuracy | {accuracy} |\n")
+        model_card.write(f"| PyTorch version | {torch.__version__} |\n")
     return accuracy
 
 @dsl.pipeline(

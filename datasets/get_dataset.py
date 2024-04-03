@@ -1,6 +1,7 @@
 from google.cloud.aiplatform_v1 import DatasetServiceClient, ListDatasetsRequest
 import google.cloud.resourcemanager as grm
 import os 
+import argparse
 
 #
 # Get a project number for a project ID, using a resource
@@ -49,8 +50,25 @@ def get_dataset(project_id, display_name):
 google_project_id = os.environ.get("GOOGLE_PROJECT_ID")
 google_region = os.environ.get("GOOGLE_REGION")
 
+
+#
+# Get the dataset name from the arguments
+#
+parser = argparse.ArgumentParser()
+parser.add_argument("--dataset", 
+                    default = "my-dataset",
+                    help = "Display name of the dataset")
+parser.add_argument("--region", 
+                    default = google_region,
+                    help = "Region")
+
+args = parser.parse_args()
+ds_name = args.dataset
+google_region = args.region
+
+
 #
 # Get dataset
 #
-ds = get_dataset(google_project_id, "my-dataset")
+ds = get_dataset(google_project_id, ds_name)
 print(ds)
